@@ -85,7 +85,7 @@ namespace XYScope
                 float right = buffer[i + 1] * 1.5f;
 
                 int x = (int)(cx + left * scale);
-                int y = (int)(cy + right * scale);
+                int y = (int)(cy - right * scale);
 
                 if (x < 1 || x >= width - 1 || y < 1 || y >= height - 1) continue;
 
