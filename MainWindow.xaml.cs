@@ -16,11 +16,12 @@ namespace XYScope
         int width, height;
         byte[] pixelData;
 
+        Point? previousPoint = null; // last point for connecting lines
+
         public MainWindow()
         {
             InitializeComponent();
 
-            // Initialize bitmap after window is loaded
             Loaded += (s, e) =>
             {
                 width = (int)ScopeCanvas.ActualWidth;
@@ -64,18 +65,19 @@ namespace XYScope
         {
             if (bitmap == null) return;
 
-            // Fade previous frame (tracer effect)
+            // Fade previous frame (phosphor discharge)
             for (int i = 0; i < pixelData.Length; i += 4)
             {
                 pixelData[i + 0] = (byte)(pixelData[i + 0] * 0.72); // B
                 pixelData[i + 1] = (byte)(pixelData[i + 1] * 0.72); // G
                 pixelData[i + 2] = (byte)(pixelData[i + 2] * 0.72); // R
-                                                                    // Alpha stays 255
             }
 
             double cx = width / 2.0;
             double cy = height / 2.0;
-            double scale = Math.Min(cx, cy) * 2.0;
+            double scale = Math.Min(cx, cy) * 2.0; // uniform scale
+
+            previousPoint = null;
 
             for (int i = 0; i < buffer.Length - 1; i += 2)
             {
@@ -85,49 +87,65 @@ namespace XYScope
                 int x = (int)(cx + left * scale);
                 int y = (int)(cy + right * scale);
 
-                if (x < 2 || x >= width - 2 || y < 2 || y >= height - 2) continue;
+                if (x < 1 || x >= width - 1 || y < 1 || y >= height - 1) continue;
 
-                // 5x5 glow kernel
-                int[,] glow = {
-            {  30,  60,  60,  60,  30 },
-            {  60, 120, 150, 120,  60 },
-            {  60, 150, 255, 150,  60 },
-            {  60, 120, 150, 120,  60 },
-            {  30,  60,  60,  60,  30 }
-        };
-
-                for (int dx = -2; dx <= 2; dx++)
+                if (previousPoint != null)
                 {
-                    for (int dy = -2; dy <= 2; dy++)
-                    {
-                        SetPixelGlow(x + dx, y + dy, glow[dy + 2, dx + 2]);
-                    }
+                    DrawLineFaint(previousPoint.Value, new Point(x, y));
                 }
+
+                previousPoint = new Point(x, y);
             }
 
-            // Write bitmap
             bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixelData, width * 4, 0);
         }
 
-        // Adds green glow to existing pixel, max 255
-        void SetPixelGlow(int x, int y, int g)
+        // Draw faint green line with subtle halo
+        void DrawLineFaint(Point p0, Point p1)
         {
-            int index = (y * width + x) * 4;
-            int newG = pixelData[index + 1] + g;
-            pixelData[index + 1] = (byte)Math.Min(255, newG);
-            // optional: also slightly increase center pixel R/B for subtle effect
-            pixelData[index + 0] = (byte)Math.Min(255, pixelData[index + 0] + g / 4);
-            pixelData[index + 2] = (byte)Math.Min(255, pixelData[index + 2] + g / 4);
-            pixelData[index + 3] = 255; // alpha
+            int x0 = (int)p0.X, y0 = (int)p0.Y;
+            int x1 = (int)p1.X, y1 = (int)p1.Y;
+
+            int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+            int err = dx + dy;
+
+            while (true)
+            {
+                ApplyFaintPixel(x0, y0);
+
+                if (x0 == x1 && y0 == y1) break;
+                int e2 = 2 * err;
+                if (e2 >= dy) { err += dy; x0 += sx; }
+                if (e2 <= dx) { err += dx; y0 += sy; }
+            }
         }
 
-        void SetPixel(int x, int y, byte b, byte g, byte r)
+        // Apply faint green with subtle halo
+        void ApplyFaintPixel(int x, int y)
         {
-            int index = (y * width + x) * 4;
-            pixelData[index + 0] = b;
-            pixelData[index + 1] = g;
-            pixelData[index + 2] = r;
-            pixelData[index + 3] = 255; // Alpha
+            int[,] halo = {
+                {0, 10, 0},
+                {10, 120, 10},
+                {0, 10, 0}
+            };
+
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int px = x + dx, py = y + dy;
+                    if (px < 0 || px >= width || py < 0 || py >= height) continue;
+
+                    int index = (py * width + px) * 4;
+                    int g = halo[dy + 1, dx + 1];
+
+                    pixelData[index + 1] = (byte)Math.Min(255, pixelData[index + 1] + g); // green
+                    pixelData[index + 0] = (byte)Math.Min(255, pixelData[index + 0] + g / 6); // blue
+                    pixelData[index + 2] = (byte)Math.Min(255, pixelData[index + 2] + g / 6); // red
+                    pixelData[index + 3] = 255; // alpha
+                }
+            }
         }
     }
 }
